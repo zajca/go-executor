@@ -83,6 +83,17 @@ func ws(c echo.Context) error {
 	}
 }
 
+type JobResponse struct {
+	JobId string `json:"jobId"`
+	PID   string `json:"pid"`
+}
+
+func showJobs(c echo.Context) error {
+
+	jobs, _ := job.ListJobs(c.Logger())
+	return c.JSON(http.StatusOK, jobs)
+}
+
 func main() {
 	e := echo.New()
 	e.Debug = true
@@ -90,6 +101,7 @@ func main() {
 	e.Use(middleware.Logger())
 	e.Use(middleware.Recover())
 	e.GET("/ws", ws)
+	e.GET("/jobs", showJobs)
 
 	cleaner := cleaner.NewJobCleaner(broadcaster)
 	go func() {

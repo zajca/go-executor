@@ -11,11 +11,10 @@ import (
 )
 
 const (
-	// messagesPath     = "/var/cache/executor/messages"
-	messagesPath     = "/home/zajca/Code/go/src/github.com/zajca/go-executor/tmp"
+	// MessagesPath     = "/var/cache/executor/messages"
+	MessagesPath     = "/home/zajca/Code/go/src/github.com/zajca/go-executor/tmp"
 	massagesFileName = "messages.csv"
 	PIDFileName      = "PID"
-	statusFileName   = "status"
 )
 
 func NewJobError(job *Job, text string, previous error) error {
@@ -44,7 +43,6 @@ type path struct {
 	Dir      string
 	Messages string
 	PID      string
-	Status   string
 }
 
 type JobStatus int
@@ -74,12 +72,11 @@ func MakeJob(msg string) (Job, error) {
 	job := Job{}
 	err := json.Unmarshal([]byte(msg), &job)
 	job.Status = Waiting
-	dir := filepath.Join(messagesPath, job.JobId)
+	dir := filepath.Join(MessagesPath, job.JobId)
 	job.Path = path{
 		Dir:      dir,
 		Messages: filepath.Join(dir, massagesFileName),
 		PID:      filepath.Join(dir, PIDFileName),
-		Status:   filepath.Join(dir, statusFileName),
 	}
 	return job, err
 }
