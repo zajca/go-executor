@@ -147,7 +147,7 @@ func (job *Job) runCmd(m chan<- *Message, p chan<- int, l echo.Logger) error {
 	job.Metrics.EndTime = time.Now().UTC()
 
 	metrics, _ := json.Marshal(job.Metrics)
-	m <- NewMessage(string(metrics), ProcessSuccess)
+	m <- NewMessage(string(metrics), ProcessRunning)
 
 	wg.Wait()
 	if err != nil {
