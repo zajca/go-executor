@@ -1,7 +1,10 @@
 package main
 
 import (
+	"fmt"
 	"net/http"
+	"os"
+	"strings"
 
 	"github.com/gorilla/websocket"
 	"github.com/labstack/echo/v4"
@@ -19,6 +22,8 @@ var (
 	}
 	jobDone     = make(chan *job.Job)
 	broadcaster = client.NewBroadcaster()
+	cmdPath     = strings.Split(os.Getenv("CMD_PATH"), ",")
+	msgPath     = os.Getenv("MSG_PATH")
 )
 
 func ws(c echo.Context) error {
@@ -36,7 +41,7 @@ func ws(c echo.Context) error {
 			continue
 		}
 		c.Logger().Debug(msg)
-		currentJob, err := job.MakeJob(string(msg))
+		currentJob, err := job.MakeJob(cmdPath, msgPath, string(msg))
 		if err != nil {
 			c.Logger().Error(err)
 			continue
@@ -48,8 +53,9 @@ func ws(c echo.Context) error {
 		// init job channels
 		messages := make(chan *job.Message)
 		PID := make(chan int, 1)
+		cmdRunDone := make(chan bool, 1)
 		// run job
-		go currentJob.Run(messages, PID, c.Logger())
+		go currentJob.Run(messages, PID, cmdRunDone, c.Logger())
 
 		go func() {
 			for m := range messages {
@@ -63,12 +69,14 @@ func ws(c echo.Context) error {
 				if err != nil {
 					c.Logger().Error(err)
 				}
-				if currentJob.Status == job.Success || currentJob.Status == job.Fail {
-					// close file descriptor if job ended
-					currentDumper.Close()
-					jobDone <- &currentJob
-				}
 			}
+		}()
+
+		go func() {
+			<-cmdRunDone
+			// close file descriptor if job ended
+			currentDumper.Close()
+			jobDone <- &currentJob
 		}()
 
 		go func() {
@@ -90,7 +98,7 @@ type JobResponse struct {
 
 func showJobs(c echo.Context) error {
 
-	jobs, _ := job.ListJobs(c.Logger())
+	jobs, _ := job.ListJobs(msgPath, c.Logger())
 	return c.JSON(http.StatusOK, jobs)
 }
 
@@ -100,6 +108,10 @@ func main() {
 
 	e.Use(middleware.Logger())
 	e.Use(middleware.Recover())
+
+	e.Logger.Info(fmt.Sprintf("Using cmd: %v.", cmdPath))
+	e.Logger.Info(fmt.Sprintf("Using msg dir: %s.", cmdPath))
+
 	e.GET("/ws", ws)
 	e.GET("/jobs", showJobs)
 

@@ -13,8 +13,8 @@ type JobResponse struct {
 	PID   string `json:"pid"`
 }
 
-func ListJobs(l echo.Logger) ([]JobResponse, error) {
-	files, err := ioutil.ReadDir(MessagesPath)
+func ListJobs(msgPath string, l echo.Logger) ([]JobResponse, error) {
+	files, err := ioutil.ReadDir(msgPath)
 	if err != nil {
 		log.Fatal(err)
 		return nil, err
@@ -24,7 +24,7 @@ func ListJobs(l echo.Logger) ([]JobResponse, error) {
 
 	for _, f := range files {
 		if f.IsDir() {
-			dat, err := os.ReadFile(MessagesPath + "/" + f.Name() + "/" + PIDFileName)
+			dat, err := os.ReadFile(msgPath + "/" + f.Name() + "/" + PIDFileName)
 			if err == nil {
 				users = append(
 					users,

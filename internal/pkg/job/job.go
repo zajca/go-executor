@@ -13,9 +13,6 @@ import (
 )
 
 const (
-	// MessagesPath     = "/var/cache/executor/messages"
-	// MessagesPath     = "/home/zajca/Code/go/src/github.com/zajca/go-executor/tmp"
-	MessagesPath     = "/home/zajca/Code/me/go-executor/tmp"
 	massagesFileName = "messages.csv"
 	PIDFileName      = "PID"
 )
@@ -35,12 +32,13 @@ func (e *jobError) Error() string {
 }
 
 type Job struct {
-	JobId      string `json:"jobId"`
-	Command    string `json:"command"`
-	Parameters string `json:"parameters"`
-	Status     JobStatus
-	Path       path
-	Metrics    jobMetrics
+	JobId       string `json:"jobId"`
+	CommandPath []string
+	Command     string `json:"command"`
+	Parameters  string `json:"parameters"`
+	Status      JobStatus
+	Path        path
+	Metrics     jobMetrics
 }
 
 type jobMetrics struct {
@@ -78,11 +76,11 @@ func (s JobStatus) Int() int {
 	panic("Unknow status")
 }
 
-func MakeJob(msg string) (Job, error) {
+func MakeJob(cmdPath []string, msgPath string, msg string) (Job, error) {
 	job := Job{}
 	err := json.Unmarshal([]byte(msg), &job)
 	job.Status = Waiting
-	dir := filepath.Join(MessagesPath, job.JobId)
+	dir := filepath.Join(msgPath, job.JobId)
 	job.Path = path{
 		Dir:      dir,
 		Messages: filepath.Join(dir, massagesFileName),
@@ -91,14 +89,15 @@ func MakeJob(msg string) (Job, error) {
 	job.Metrics = jobMetrics{
 		InitTime: time.Now().UTC(),
 	}
+	job.CommandPath = cmdPath
 	return job, err
 }
 
-func (job *Job) Run(m chan<- *Message, p chan<- int, l echo.Logger) error {
+func (job *Job) Run(m chan<- *Message, p chan<- int, d chan<- bool, l echo.Logger) error {
 	if job.Status != Waiting {
 		return NewJobError(job, "Job is not in waiting state.", nil)
 	}
-	err := job.runCmd(m, p, l)
+	err := job.runCmd(m, p, d, l)
 	if err != nil {
 		l.Debug(err)
 		return NewJobError(job, err.Error(), err)
@@ -107,9 +106,10 @@ func (job *Job) Run(m chan<- *Message, p chan<- int, l echo.Logger) error {
 	return nil
 }
 
-func (job *Job) runCmd(m chan<- *Message, p chan<- int, l echo.Logger) error {
-	// cmd := exec.Command("php", "/home/zajca/Code/go/src/github.com/zajca/go-executor/cmd.php", job.Command, "--parameters", job.Parameters, "--jobId", job.JobId)
-	cmd := exec.Command("php", "/home/zajca/Code/me/go-executor/cmd.php", job.Command, "--parameters", job.Parameters, "--jobId", job.JobId)
+func (job *Job) runCmd(m chan<- *Message, p chan<- int, d chan<- bool, l echo.Logger) error {
+	args := []string{job.Command, "--parameters", job.Parameters, "--jobId", job.JobId}
+	cmdArgs := append(job.CommandPath, args...)
+	cmd := exec.Command(cmdArgs[0], cmdArgs[1:]...)
 	job.Metrics.StartTime = time.Now().UTC()
 
 	var wg sync.WaitGroup
@@ -158,6 +158,8 @@ func (job *Job) runCmd(m chan<- *Message, p chan<- int, l echo.Logger) error {
 		m <- NewMessage("Cmd done", ProcessSuccess)
 	}
 	close(m)
+	d <- true
+	close(d)
 
 	if err != nil {
 		return NewJobError(job, err.Error(), err)
