@@ -2,6 +2,7 @@ package client
 
 import (
 	"encoding/json"
+	"sync"
 
 	"github.com/gorilla/websocket"
 	"github.com/labstack/echo/v4"
@@ -9,17 +10,24 @@ import (
 )
 
 type Broadcaster struct {
-	Clients map[*websocket.Conn]bool
+	Clients []*websocket.Conn
+	mu      sync.Mutex
 }
 
 func NewBroadcaster() *Broadcaster {
 	return &Broadcaster{
-		make(map[*websocket.Conn]bool),
+		Clients: []*websocket.Conn{},
+		mu:      sync.Mutex{},
 	}
 }
 
 func (b *Broadcaster) AddClient(ws *websocket.Conn) {
-	b.Clients[ws] = true
+	b.Clients = append(b.Clients, ws)
+}
+
+func (b *Broadcaster) removeClient(i int) {
+	b.Clients[i] = b.Clients[len(b.Clients)-1]
+	b.Clients = b.Clients[:len(b.Clients)-1]
 }
 
 func (b *Broadcaster) HasAnyClient() bool {
@@ -27,14 +35,16 @@ func (b *Broadcaster) HasAnyClient() bool {
 }
 
 func (b *Broadcaster) SendMessage(m *job.Message, l echo.Logger) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 	isSend := false
 	// broadcast message to all clients
-	for soc := range b.Clients {
+	for i, soc := range b.Clients {
 		json, _ := json.Marshal(m)
 		err := soc.WriteMessage(websocket.TextMessage, json)
 		if err != nil {
 			l.Error(err)
-			delete(b.Clients, soc)
+			b.removeClient(i)
 		} else {
 			// message was send to at least one client
 			isSend = true
