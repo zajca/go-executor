@@ -9,8 +9,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/go-playground/validator/v10"
 	"github.com/labstack/echo/v4"
 )
+
+var validate *validator.Validate
 
 const (
 	massagesFileName = "messages.csv"
@@ -19,6 +22,15 @@ const (
 
 func NewJobError(job *Job, text string, previous error) error {
 	return &jobError{job, text, previous}
+}
+
+type jobValidationError struct {
+	s string
+	p error
+}
+
+func (e *jobValidationError) Error() string {
+	return fmt.Sprintf("Job structure is invalid: %s.", e.s)
 }
 
 type jobError struct {
@@ -32,10 +44,10 @@ func (e *jobError) Error() string {
 }
 
 type Job struct {
-	JobId       string `json:"jobId"`
+	JobId       string `json:"jobId",validate:"required"`
 	CommandPath []string
-	Command     string `json:"command"`
-	Parameters  string `json:"parameters"`
+	Command     string `json:"command",validate:"required"`
+	Parameters  string `json:"parameters",validate:"required"`
 	Status      JobStatus
 	Path        path
 	Metrics     jobMetrics
@@ -78,7 +90,15 @@ func (s JobStatus) Int() int {
 
 func MakeJob(cmdPath []string, msgPath string, msg string) (Job, error) {
 	job := Job{}
-	err := json.Unmarshal([]byte(msg), &job)
+	if err := json.Unmarshal([]byte(msg), &job); err != nil {
+		return job, err
+	}
+
+	validate = validator.New()
+	if err := validate.Struct(job); err != nil {
+		return job, err
+	}
+
 	job.Status = Waiting
 	dir := filepath.Join(msgPath, job.JobId)
 	job.Path = path{
@@ -90,7 +110,7 @@ func MakeJob(cmdPath []string, msgPath string, msg string) (Job, error) {
 		InitTime: time.Now().UTC(),
 	}
 	job.CommandPath = cmdPath
-	return job, err
+	return job, nil
 }
 
 func (job *Job) Run(m chan<- *Message, p chan<- int, d chan<- bool, l echo.Logger) error {
