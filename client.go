@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -51,18 +52,22 @@ func main() {
 		}
 	}()
 
-	ticker := time.NewTicker(time.Second)
+	ticker := time.NewTicker(time.Millisecond)
 	defer ticker.Stop()
+
+	counter := 0
 
 	for {
 		select {
 		case <-done:
 			return
 		case <-ticker.C:
+			counter++
+			log.Println("Counter:", counter)
 			json, _ := json.Marshal(message{
 				JobId:      uuid.New(),
 				Command:    "driver:workspace:create",
-				Parameters: "{\"host\":\"123\"}",
+				Parameters: "{\"host\":\"123\"," + "\"counter\":\"" + strconv.Itoa(counter) + "\"}",
 			})
 			err := c.WriteMessage(websocket.TextMessage, json)
 			if err != nil {

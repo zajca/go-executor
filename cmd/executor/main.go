@@ -14,16 +14,19 @@ import (
 	"github.com/zajca/go-executor/internal/pkg/job"
 )
 
+const JOB_COUNT_LIMIT = 1000
+
 var (
 	upgrader = websocket.Upgrader{
 		CheckOrigin: func(r *http.Request) bool {
 			return true
 		},
 	}
-	jobDone     = make(chan *job.Job)
-	broadcaster = client.NewBroadcaster()
-	cmdPath     = strings.Split(os.Getenv("CMD_PATH"), ",")
-	msgPath     = os.Getenv("MSG_PATH")
+	jobDone       = make(chan *job.Job)
+	broadcaster   = client.NewBroadcaster()
+	cmdPath       = strings.Split(os.Getenv("CMD_PATH"), ",")
+	msgPath       = os.Getenv("MSG_PATH")
+	jobCountLimit = 0
 )
 
 func ws(c echo.Context) error {
@@ -35,6 +38,9 @@ func ws(c echo.Context) error {
 	defer ws.Close()
 
 	for {
+		if jobCountLimit == JOB_COUNT_LIMIT {
+			continue
+		}
 		// Read
 		_, msg, err := ws.ReadMessage()
 		if err != nil {
@@ -55,6 +61,7 @@ func ws(c echo.Context) error {
 		PID := make(chan int, 1)
 		cmdRunDone := make(chan bool, 1)
 		// run job
+		jobCountLimit++
 		go currentJob.Run(messages, PID, cmdRunDone, c.Logger())
 
 		go func() {
@@ -77,6 +84,7 @@ func ws(c echo.Context) error {
 			// close file descriptor if job ended
 			currentDumper.Close()
 			jobDone <- &currentJob
+			jobCountLimit--
 		}()
 
 		go func() {

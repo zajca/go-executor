@@ -44,10 +44,10 @@ func (e *jobError) Error() string {
 }
 
 type Job struct {
-	JobId       string `json:"jobId",validate:"required"`
+	JobId       string `json:"jobId",validate:"required,notblank"`
 	CommandPath []string
-	Command     string `json:"command",validate:"required"`
-	Parameters  string `json:"parameters",validate:"required"`
+	Command     string `json:"command",validate:"required,notblank"`
+	Parameters  string `json:"parameters",validate:"required,notblank"`
 	Status      JobStatus
 	Path        path
 	Metrics     jobMetrics

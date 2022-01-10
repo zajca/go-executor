@@ -11,3 +11,11 @@ example with php
 ```
 $ CMD_PATH="php,/path/go-executor/cmd.php" MSG_PATH="/path/go-executor/tmp" go run ./cmd/executor/main.go --debug
 ```
+
+### Create some jobs
+
+this will trigger job every milisecond
+
+```
+go run ./client.go -addr=localhost:1323
+```

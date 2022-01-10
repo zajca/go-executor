@@ -11,17 +11,19 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/zajca/go-executor/internal/pkg/client"
 	"github.com/zajca/go-executor/internal/pkg/job"
+	"golang.org/x/sync/syncmap"
 )
 
 type JobCleaner struct {
 	broadcaster *client.Broadcaster
-	jobsToClean map[*job.Job]bool
+	jobsToClean syncmap.Map
+	jobsCounter int
 }
 
 func NewJobCleaner(b *client.Broadcaster) *JobCleaner {
 	return &JobCleaner{
 		broadcaster: b,
-		jobsToClean: make(map[*job.Job]bool),
+		jobsToClean: syncmap.Map{},
 	}
 }
 
@@ -30,36 +32,39 @@ func (c *JobCleaner) HandleJob(j *job.Job, l echo.Logger) {
 	if err := os.Remove(j.Path.PID); err != nil {
 		l.Error(err)
 	}
-	c.jobsToClean[j] = false
+	c.jobsToClean.Store(j, false)
+	c.jobsCounter++
 }
 
 func (c *JobCleaner) Run(l echo.Logger) {
 	for {
 		if !c.broadcaster.HasAnyClient() {
-			if len(c.jobsToClean) != 0 {
-				l.Info(fmt.Sprintf("'%d' jobs to clean, but no client is connected.", len(c.jobsToClean)))
+			if c.jobsCounter != 0 {
+				l.Info(fmt.Sprintf("'%d' jobs to clean, but no client is connected.", c.jobsCounter))
 			}
 			time.Sleep(1 * time.Second)
 			continue
 		}
-		if len(c.jobsToClean) != 0 {
-			for j, p := range c.jobsToClean {
-				if !p {
-					// if not processing run clean
-					c.jobsToClean[j] = true
-					l.Debug(fmt.Sprintf("[Running] Clean for job: '%s'.", j.JobId))
-					err := c.cleanJob(j, l)
-					if err != nil {
-						l.Error(err)
-						l.Debug(fmt.Sprintf("[Failed] Clean for job: '%s'.", j.JobId))
-						c.jobsToClean[j] = false
-					} else {
-						l.Debug(fmt.Sprintf("[Success] Clean for job: '%s'.", j.JobId))
-						delete(c.jobsToClean, j)
-					}
+		c.jobsToClean.Range(func(j, p interface{}) bool {
+			if p == false {
+				// if not processing run clean
+				val, _ := j.(*job.Job)
+				c.jobsToClean.Store(j, true)
+				l.Debug(fmt.Sprintf("[Running] Clean for job: '%s'.", val.JobId))
+				err := c.cleanJob(val, l)
+				if err != nil {
+					l.Error(err)
+					l.Debug(fmt.Sprintf("[Failed] Clean for job: '%s'.", val.JobId))
+					c.jobsToClean.Store(j, false)
+				} else {
+					l.Debug(fmt.Sprintf("[Success] Clean for job: '%s'.", val.JobId))
+					c.jobsToClean.Delete(j)
+					c.jobsCounter--
 				}
 			}
-		}
+
+			return true
+		})
 	}
 }
 
