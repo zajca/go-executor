@@ -43,7 +43,6 @@ func (c *JobCleaner) Count() uint32 {
 
 func (c *JobCleaner) Run(jc chan<- *job.Job, l echo.Logger) {
 	for {
-		l.Info(fmt.Sprintf("Clean job loop"))
 		if !c.broadcaster.HasAnyClient() {
 			if c.jobsCounter != 0 {
 				l.Info(fmt.Sprintf("'%d' jobs to clean, but no client is connected.", c.jobsCounter))
