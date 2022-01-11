@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/signal"
 	"strings"
-	"sync/atomic"
 	"syscall"
 
 	"github.com/gorilla/websocket"
@@ -43,10 +42,11 @@ func (s applicationStatus) String() string {
 }
 
 type healthResponse struct {
-	Status        applicationStatus
-	Jobs          []job.JobResponse
-	CountClearing uint32
-	CountRunning  uint32
+	Status           applicationStatus
+	Jobs             []job.JobResponse
+	CountClearing    uint32
+	CountJobsRunning uint32
+	CountJobsTotal   uint32
 }
 
 var (
@@ -55,14 +55,14 @@ var (
 			return true
 		},
 	}
-	jobDone              = make(chan *job.Job)
-	jobCleared           = make(chan *job.Job)
-	broadcaster          = client.NewBroadcaster()
-	cleanerInst          = cleaner.NewJobCleaner(broadcaster)
-	cmdPath              = strings.Split(os.Getenv("CMD_PATH"), ",")
-	msgPath              = os.Getenv("MSG_PATH")
-	jobCountLimit uint32 = 0
-	status               = Starting
+	jobDone     = make(chan *job.Job)
+	jobCleared  = make(chan *job.Job)
+	broadcaster = client.NewBroadcaster()
+	cleanerInst = cleaner.NewJobCleaner(broadcaster)
+	jobRunner   = job.Runner{}
+	cmdPath     = strings.Split(os.Getenv("CMD_PATH"), ",")
+	msgPath     = os.Getenv("MSG_PATH")
+	status      = Starting
 )
 
 func ws(c echo.Context) error {
@@ -74,7 +74,8 @@ func ws(c echo.Context) error {
 	defer ws.Close()
 
 	for {
-		if jobCountLimit == JOB_COUNT_LIMIT {
+		// top limit is not exact as there could be more messages by time this is evaluated
+		if jobRunner.RunningJobsCount() >= JOB_COUNT_LIMIT {
 			continue
 		}
 		if status == Draining {
@@ -100,8 +101,7 @@ func ws(c echo.Context) error {
 		PID := make(chan int, 1)
 		cmdRunDone := make(chan bool, 1)
 		// run job
-		atomic.AddUint32(&jobCountLimit, 1)
-		go currentJob.Run(messages, PID, cmdRunDone, c.Logger())
+		go jobRunner.Run(&currentJob, messages, PID, cmdRunDone, c.Logger())
 
 		go func() {
 			for m := range messages {
@@ -123,7 +123,6 @@ func ws(c echo.Context) error {
 			// close file descriptor if job ended
 			currentDumper.Close()
 			jobDone <- &currentJob
-			atomic.AddUint32(&jobCountLimit, ^uint32(0))
 		}()
 
 		go func() {
@@ -143,17 +142,19 @@ func showHealth(c echo.Context) error {
 	jobs, _ := job.ListJobs(msgPath, c.Logger())
 
 	return c.JSON(http.StatusOK, healthResponse{
-		Status:        status,
-		Jobs:          jobs,
-		CountClearing: cleanerInst.Count(),
-		CountRunning:  jobCountLimit,
+		Status:           status,
+		Jobs:             jobs,
+		CountClearing:    cleanerInst.Count(),
+		CountJobsRunning: jobRunner.RunningJobsCount(),
+		CountJobsTotal:   jobRunner.TotalJobsCount(),
 	})
 }
 
 func exitIfDone(l echo.Logger) {
-	if cleanerInst.Count() == 0 && jobCountLimit == 0 {
+	if cleanerInst.Count() == 0 && jobRunner.RunningJobsCount() == 0 {
 		// exit when all jobs are done and cleared
 		l.Info("No jobs are running and all cleared, exiting,...")
+		l.Info(fmt.Sprintf("Total '%d' jobs were run.", jobRunner.TotalJobsCount()))
 		os.Exit(0)
 	}
 }
