@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/go-playground/validator/v10"
@@ -156,6 +157,10 @@ func (job *Job) runCmd(m chan<- *Message, p chan<- int, d chan<- bool, l echo.Lo
 		}
 		wg.Done()
 	}()
+
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		Setpgid: true,
+	}
 	cmd.Start()
 
 	l.Debug(cmd.Process.Pid)

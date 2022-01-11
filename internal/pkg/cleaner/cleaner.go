@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sync/atomic"
 	"time"
 
 	"github.com/labstack/echo/v4"
@@ -17,7 +18,7 @@ import (
 type JobCleaner struct {
 	broadcaster *client.Broadcaster
 	jobsToClean syncmap.Map
-	jobsCounter int
+	jobsCounter uint32
 }
 
 func NewJobCleaner(b *client.Broadcaster) *JobCleaner {
@@ -33,11 +34,16 @@ func (c *JobCleaner) HandleJob(j *job.Job, l echo.Logger) {
 		l.Error(err)
 	}
 	c.jobsToClean.Store(j, false)
-	c.jobsCounter++
+	atomic.AddUint32(&c.jobsCounter, 1)
 }
 
-func (c *JobCleaner) Run(l echo.Logger) {
+func (c *JobCleaner) Count() uint32 {
+	return c.jobsCounter
+}
+
+func (c *JobCleaner) Run(jc chan<- *job.Job, l echo.Logger) {
 	for {
+		l.Info(fmt.Sprintf("Clean job loop"))
 		if !c.broadcaster.HasAnyClient() {
 			if c.jobsCounter != 0 {
 				l.Info(fmt.Sprintf("'%d' jobs to clean, but no client is connected.", c.jobsCounter))
@@ -45,9 +51,16 @@ func (c *JobCleaner) Run(l echo.Logger) {
 			time.Sleep(1 * time.Second)
 			continue
 		}
+
+		if c.jobsCounter == 0 {
+			l.Info("No jobs to clean.")
+			time.Sleep(1 * time.Second)
+			continue
+		}
+
 		c.jobsToClean.Range(func(j, p interface{}) bool {
-			if p == false {
-				// if not processing run clean
+			if p.(bool) == false {
+				// if clean is not processing run it
 				val, _ := j.(*job.Job)
 				c.jobsToClean.Store(j, true)
 				l.Debug(fmt.Sprintf("[Running] Clean for job: '%s'.", val.JobId))
@@ -59,8 +72,10 @@ func (c *JobCleaner) Run(l echo.Logger) {
 				} else {
 					l.Debug(fmt.Sprintf("[Success] Clean for job: '%s'.", val.JobId))
 					c.jobsToClean.Delete(j)
-					c.jobsCounter--
+					atomic.AddUint32(&c.jobsCounter, ^uint32(0))
+					jc <- val
 				}
+				return false
 			}
 
 			return true

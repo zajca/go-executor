@@ -2,7 +2,6 @@ package job
 
 import (
 	"io/ioutil"
-	"log"
 	"os"
 
 	"github.com/labstack/echo/v4"
@@ -14,13 +13,12 @@ type JobResponse struct {
 }
 
 func ListJobs(msgPath string, l echo.Logger) ([]JobResponse, error) {
+	users := make([]JobResponse, 0)
 	files, err := ioutil.ReadDir(msgPath)
 	if err != nil {
-		log.Fatal(err)
-		return nil, err
+		l.Warn(err)
+		return users, err
 	}
-
-	users := make([]JobResponse, 0)
 
 	for _, f := range files {
 		if f.IsDir() {
